@@ -473,5 +473,30 @@ namespace CoAPNet.Tests
             Assert.AreEqual(blockSize, optionToBytes.BlockSize, "Decoded Block Size from bytes");
             Assert.AreEqual(more, optionToBytes.IsMoreFollowing, "Decoded More following from bytes");
         }
+
+        [Test]
+        [Category("Options")]
+        public void TestUriOptionSorting()
+        {
+            var path_part1 = new Options.UriPath() { ValueString = "v1" };
+            var path_part2 = new Options.UriPath() { ValueString = "vortex" };
+            var path_part3 = new Options.UriPath() { ValueString = "version" };
+            var path_part4 = new Options.UriPath() { ValueString = "value" };
+            var options = new System.Collections.Generic.List<CoapOption>();
+
+            options.Add(path_part1);
+            options.Add(path_part2);
+            options.Add(path_part3);
+            options.Add(path_part4);
+
+            var coapMessage = new CoapMessage()
+            {
+                Code = CoapMessageCode.Get,
+                Options = options
+            };
+
+            var bytes = coapMessage.ToBytes();
+            var s = Encoding.UTF8.GetString(bytes);
+        }
     }
 }
