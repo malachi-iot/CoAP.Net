@@ -478,12 +478,14 @@ namespace CoAPNet.Tests
         [Category("Options")]
         public void TestUriOptionSorting()
         {
+            var host = new Options.UriHost() { ValueString = "h1" };
             var path_part1 = new Options.UriPath() { ValueString = "v1" };
             var path_part2 = new Options.UriPath() { ValueString = "vortex" };
             var path_part3 = new Options.UriPath() { ValueString = "version" };
             var path_part4 = new Options.UriPath() { ValueString = "value" };
             var options = new System.Collections.Generic.List<CoapOption>();
 
+            options.Add(host);
             options.Add(path_part1);
             options.Add(path_part2);
             options.Add(path_part3);
