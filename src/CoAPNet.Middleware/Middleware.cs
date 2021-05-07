@@ -215,10 +215,13 @@ namespace CoAPNet.Middleware
 		}
 	}
 
+	// DEBT: A better name would be helpful, something like 'ScheduleAbsoluteDelegate' or similar
+	public delegate void AddOneShotDelegate(DateTime scheduled, Action action, string description);
+
 
 	public class CoapRetryMiddleware : CoapAckMiddleware
 	{
-		readonly Experimental.SchedulerService scheduler;
+		readonly AddOneShotDelegate addOneShot;
 
 		/// <summary>
 		/// 
@@ -249,14 +252,18 @@ namespace CoAPNet.Middleware
 			const float ackRandomFactor = 1.5F;
 
 			readonly Experimental.SchedulerService scheduler;
+			readonly AddOneShotDelegate addOneShot;
 			readonly Parameters parameters = new Parameters();
 
 			ushort retries = 0;
 
 			public RetryTarget(CoapMessage sent, DateTimeOffset requestSent, ICoapEndpoint endpoint,
-				Experimental.SchedulerService scheduler) : base(sent, requestSent, endpoint)
+				AddOneShotDelegate addOneShot
+				//Experimental.SchedulerService scheduler
+				) : base(sent, requestSent, endpoint)
 			{
-				this.scheduler = scheduler;
+				//this.scheduler = scheduler;
+				this.addOneShot = addOneShot;
 
 			}
 
@@ -282,22 +289,24 @@ namespace CoAPNet.Middleware
 					parameters.AckRandomFactor * doubler;
 				var toRetry = DateTimeSent.AddMilliseconds(timeout);
 
-				var scheduledItem = scheduler.AddOneShot(toRetry.DateTime,
+				//var scheduledItem = scheduler.AddOneShot(toRetry.DateTime,
+				addOneShot(toRetry.DateTime,
 					() => Retry(toRetry, localEndpoint, ct),
 					$"retry handler:mid={Id}");
 			}
 		}
 
 		public CoapRetryMiddleware(RequestDelegate<CoapContext> next,
-			Experimental.SchedulerService scheduler) : base(next)
+			AddOneShotDelegate addOneShot) : base(next)
 		{
-			this.scheduler = scheduler;
+			this.addOneShot = addOneShot;
 		}
 
 		public void Track(CoapMessage message, ICoapEndpoint endpoint, DateTimeOffset dateTimeSent,
 			ICoapEndpoint localEndpoint, CancellationToken retrySendCancellationToken)
 		{
-			var target = new RetryTarget(message, dateTimeSent, endpoint, scheduler);
+			//var target = new RetryTarget(message, dateTimeSent, endpoint, scheduler);
+			var target = new RetryTarget(message, dateTimeSent, endpoint, addOneShot);
 			target.ScheduleRetry(localEndpoint, retrySendCancellationToken);
 			Add(target);
 		}
@@ -521,7 +530,8 @@ namespace CoAPNet.Middleware
 			if (extra != null)
 				terminator = extra;
 
-			var scheduler = services.GetService<Experimental.SchedulerService>();
+			//var scheduler = services.GetService<Experimental.SchedulerService>();
+			var addOneShot = services.GetService<AddOneShotDelegate>();
 			var observeMiddleware = new CoapObserveMiddleware(terminator.Invoke);
 			var ackMiddleware = new CoapAckMiddleware(observeMiddleware.Invoke);
 
@@ -532,7 +542,8 @@ namespace CoAPNet.Middleware
 			optionFactory = new OptionFactory(new[] { typeof(Options.Observe) });
 
 			appBuilder.Use(requestDelegate =>
-				new CoapRetryMiddleware(requestDelegate, scheduler).Invoke);
+				//new CoapRetryMiddleware(requestDelegate, scheduler).Invoke);
+				new CoapRetryMiddleware(requestDelegate, addOneShot).Invoke);
 			appBuilder.Use(requestDelegate =>
 				new CoapObserveMiddleware(requestDelegate).Invoke);
 
