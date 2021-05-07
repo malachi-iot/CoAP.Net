@@ -118,8 +118,13 @@ namespace CoAPNet.Middleware
 			{
 				if (context.Message.Id == Id && context.Message.Type == CoapMessageType.Acknowledgement)
 				{
+					// If MinValue, then we haven't yet encountered an ACK
 					if (responseReceived == DateTimeOffset.MinValue)
 					{
+						// Only if that is the case do we fire off event, so as to dedup multiple ACKs
+						// DEBT: Not sure why we need to do this actually, and even if so, may be better
+						// to pass along all encountered ACK events anyway with an extra parameter indicating
+						// responseReceived and how many ACKs matching already happened (0 means first ACK)
 						AckEncountered(this);
 						responseReceived = context.DateTimeReceived;
 					}
