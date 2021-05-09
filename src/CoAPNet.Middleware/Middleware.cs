@@ -572,11 +572,7 @@ namespace CoAPNet.Middleware
 
 				foreach (var outgoing in context.Outgoing)
 				{
-					var p = new CoapPacket
-					{
-						Endpoint = outgoing.Item1,
-						Payload = outgoing.Item2.ToBytes()
-					};
+					CoapPacket p = outgoing.Item2.ToPacket(outgoing.Item1);
 
 					// DEBT: Paralellize this portion
 					await Endpoint.SendAsync(p, ct);
