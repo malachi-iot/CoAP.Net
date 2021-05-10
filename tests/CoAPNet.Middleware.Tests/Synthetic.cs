@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 
+// TODO: Fix tab/spacing (we are using tabs but should be using spaces) and do .editorconfig if need be
 namespace CoAPNet.Middleware.Tests
 {
 	public class SyntheticCoapEndpoint : ICoapEndpoint
