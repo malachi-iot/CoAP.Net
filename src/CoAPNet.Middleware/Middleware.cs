@@ -18,35 +18,47 @@ namespace CoAPNet.Middleware
 		Task Invoke(CoapContext context);
 	}
 
-	public class CoapContext
-	{
+
+	public class CoapContextBase
+    {
 		public ICoapConnectionInformation Connection { get; }
+
+		public CancellationToken CancellationToken { get; }
+
+		public IServiceProvider Services { get; }
+
+		public CoapContextBase(ICoapConnectionInformation connection,
+			IServiceProvider services,
+			CancellationToken cancellationToken)
+        {
+			CancellationToken = cancellationToken;
+			Connection = connection;
+			Services = services;
+        }
+	}
+
+	public class CoapContext : CoapContextBase
+	{
 		/// <summary>
 		/// Incoming message
 		/// </summary>
 		public CoapMessage Message { get; }
 		public DateTimeOffset DateTimeReceived { get; }
 
-		public CancellationToken CancellationToken { get; }
-
 		public System.Collections.ObjectModel.ObservableCollection<
 			Tuple<ICoapEndpoint, CoapMessage>> Outgoing
 		{ get; }
 
-		public IServiceProvider Services { get; }
-
 		public CoapContext(ICoapConnectionInformation connection, byte[] payload,
 			DateTimeOffset received,
 			IServiceProvider services,
-			CancellationToken cancellationToken)
+			CancellationToken cancellationToken) : 
+			base(connection, services, cancellationToken)
 		{
-			Connection = connection;
 			Message = new CoapMessage();
 			Message.OptionFactory = services.GetService<OptionFactory>();
 			Message.Decode(new System.IO.MemoryStream(payload));
 			DateTimeReceived = received;
-			CancellationToken = cancellationToken;
-			Services = services;
 			Outgoing = new System.Collections.ObjectModel.ObservableCollection<Tuple<ICoapEndpoint, CoapMessage>>();
 		}
 	}
@@ -291,6 +303,11 @@ namespace CoAPNet.Middleware
 				{
 					CoapPacket p = sent.ToPacket(Endpoint);
 					retries++;
+					// Specifically *not* using something like CoapClient2.SendAsync because that would double
+					// up on the retry tracking logic.
+					// That said, we may consider having yet another context
+					// passed into SendAsync so that we can enjoy other parts of output pipelining and omit
+					// in this case retry tracking from the middleware
 					// DEBT: Heed NSTART
 					localEndpoint.SendAsync(p, ct);
 					if (retries <= maxRetransmit)
@@ -632,6 +649,8 @@ namespace CoAPNet.Middleware
 			while (!ct.IsCancellationRequested)
             {
 				CoapPacket p = await outgoing.Reader.ReadAsync(ct);
+				// End of outgoing pipeline more-or-less sends over transport
+				// (it's permissible to have post-send middleware)
 				await outgoingMiddleware.Invoke(p);
             }
         }
