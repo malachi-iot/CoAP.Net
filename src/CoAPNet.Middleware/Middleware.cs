@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Threading.Channels;
 
 namespace CoAPNet.Middleware
 {
@@ -523,12 +524,39 @@ namespace CoAPNet.Middleware
 	// DEBT: Acts a a client-and-server actually, so wants a different name
 	public class CoapClient2
 	{
+		/// <summary>
+		/// Local endpoint to which this client is bound
+		/// </summary>
 		public ICoapEndpoint Endpoint { get; }
+
+		/// <summary>
+		/// We utilize an outgoing queue here so that eventually an 'outgoing pipeline' can operate
+		/// </summary>
+		/// <remarks>
+		/// ... otherwise, we might instead use an ObservableCollection here or if we really don't care,
+		/// merely send out directly over the endpoint
+		/// </remarks>
+		Channel<CoapPacket> outgoing = Channel.CreateUnbounded<CoapPacket>();
 
 		ICoapMiddleware middleware;
 
 		readonly OptionFactory optionFactory;
-		readonly ApplicationBuilder<CoapContext> appBuilder = new ApplicationBuilder<CoapContext>();
+
+		readonly RequestDelegate<CoapContext> incomingMiddleware;
+		readonly RequestDelegate<CoapPacket> outgoingMiddleware;
+
+		RequestDelegate<CoapPacket> ConfigureOutgoingMiddleware(CancellationToken ct)
+        {
+			ApplicationBuilder<CoapPacket> appBuilder = new ApplicationBuilder<CoapPacket>();
+
+			appBuilder.Use(async (packet, next) =>
+			{
+				await Endpoint.SendAsync(packet, ct);
+				await next();
+			});
+
+			return appBuilder.Build();
+		}
 
 		public CoapClient2(ICoapEndpoint endpoint, IServiceProvider services,
 			CancellationToken ct,
@@ -558,39 +586,68 @@ namespace CoAPNet.Middleware
 			middleware = ackMiddleware;
 			optionFactory = new OptionFactory(new[] { typeof(Options.Observe) });
 
+			var appBuilder = new ApplicationBuilder<CoapContext>();
+
 			appBuilder.Use(requestDelegate =>
 				//new CoapRetryMiddleware(requestDelegate, scheduler).Invoke);
 				new CoapRetryMiddleware(requestDelegate, addOneShot).Invoke);
 			appBuilder.Use(requestDelegate =>
 				new CoapObserveMiddleware(requestDelegate).Invoke);
+			if (extra != null)
+				appBuilder.Use(requestDelegate => extra.Invoke);
+			incomingMiddleware = appBuilder.Build();
 
-			Task.Run(() => Worker(services, ct));
+			outgoingMiddleware = ConfigureOutgoingMiddleware(ct);
+
+			// NOTE: Consider making a Fact service -- not doing so because that might be more heavy
+			// than is needed - plus adds a dependency to Fact.Extensions.Services
+			Task.Run(() => InternalOutgoingWorker(services, ct));
+			Task.Run(() => EndpointReceiveWorker(services, ct));
 		}
 
+		async Task OnReceivedMessage(CoapContext context)
+        {
+			//await middleware.Invoke(context);
+			await incomingMiddleware(context);
 
-		// NOTE: Consider making a Fact service -- not doing so because that might be more heavy
-		// than is needed it seems
-		async Task Worker(IServiceProvider services, CancellationToken ct)
-		{
+			foreach (var outgoing in context.Outgoing)
+			{
+				CoapPacket p = outgoing.Item2.ToPacket(outgoing.Item1);
+
+				// DEBT: Paralellize this portion
+				await Endpoint.SendAsync(p, context.CancellationToken);
+			}
+		}
+
+		async Task EndpointReceiveWorker(IServiceProvider services, CancellationToken ct)
+        {
 			while (!ct.IsCancellationRequested)
 			{
 				CoapPacket packet = await Endpoint.ReceiveAsync(ct);
 				var now = DateTimeOffset.Now;
 				var c = new CoapConnectionInformation(Endpoint, packet.Endpoint);
 
-				var context = new CoapContext(c, packet.Payload, now, services, ct);
-
-				await middleware.Invoke(context);
-
-				foreach (var outgoing in context.Outgoing)
-				{
-					CoapPacket p = outgoing.Item2.ToPacket(outgoing.Item1);
-
-					// DEBT: Paralellize this portion
-					await Endpoint.SendAsync(p, ct);
-				}
+				await OnReceivedMessage(new CoapContext(c, packet.Payload, now, services, ct));
 			}
 		}
+
+
+		/// <summary>
+		/// For system-level outgoing packets vs. request/response level outgoing packets
+		/// handled via CoapContext
+		/// </summary>
+		/// <param name="services"></param>
+		/// <param name="ct"></param>
+		/// <returns></returns>
+		async Task InternalOutgoingWorker(IServiceProvider services, CancellationToken ct)
+        {
+			while (!ct.IsCancellationRequested)
+            {
+				CoapPacket p = await outgoing.Reader.ReadAsync(ct);
+				await outgoingMiddleware.Invoke(p);
+				//await Endpoint.SendAsync(p, ct);
+            }
+        }
 	}
 
 
