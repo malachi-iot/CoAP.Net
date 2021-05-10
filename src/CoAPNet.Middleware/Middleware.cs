@@ -158,7 +158,12 @@ namespace CoAPNet.Middleware
 			}
 		}
 
-		// DEBT: A lot of optimization opportunity here
+		/// <summary>
+		/// List of remote targets which we're looking for ACK from
+		/// </summary>
+		/// <remarks>
+		/// DEBT: A lot of optimization opportunity here
+		/// </remarks>
 		protected List<SingleTarget> targets = new List<SingleTarget>();
 
 		readonly RequestDelegate<CoapContext> next;
