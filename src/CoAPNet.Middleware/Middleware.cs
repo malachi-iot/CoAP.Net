@@ -53,17 +53,24 @@ namespace CoAPNet.Middleware
 
 	public static class CoapContextExtensions
 	{
+		public static CoapMessage CreateReply(this CoapMessage message,
+			CoapMessageCode code,
+			CoapMessageType type = CoapMessageType.Acknowledgement)
+        {
+			return new CoapMessage
+			{
+				Id = message.Id,
+				Token = message.Token,
+				Type = type,
+				Code = code
+			};
+		}
+
 		public static CoapMessage Reply(this CoapContext context,
 			CoapMessageCode code,
 			CoapMessageType type = CoapMessageType.Acknowledgement)
 		{
-			var m = new CoapMessage
-			{
-				Id = context.Message.Id,
-				Token = context.Message.Token,
-				Type = type,
-				Code = code
-			};
+			CoapMessage m = context.Message.CreateReply(code, type);
 			context.Outgoing.Add(new Tuple<ICoapEndpoint, CoapMessage>(context.Connection.RemoteEndpoint, m));
 			return m;
 		}

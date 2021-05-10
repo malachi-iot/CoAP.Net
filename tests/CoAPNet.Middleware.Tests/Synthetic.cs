@@ -45,17 +45,15 @@ namespace CoAPNet.Middleware.Tests
 	}
 
 
+	/// <summary>
+	/// Generates an ACK every time and responds directly via endpoints rather than context.Outgoing
+	/// </summary>
 	public class SyntheticMiddleware : ICoapMiddleware
 	{
 		public async Task Invoke(CoapContext context)
 		{
-			var m = new CoapMessage
-			{
-				Id = context.Message.Id,
-				Token = context.Message.Token,
-				Type = CoapMessageType.Acknowledgement
-			};
-			CoapPacket p = m.ToPacket(context.Connection.RemoteEndpoint);
+			CoapMessage ackReply = context.Message.CreateReply(CoapMessageCode.Valid);
+			CoapPacket p = ackReply.ToPacket(context.Connection.RemoteEndpoint);
 			await context.Connection.LocalEndpoint.SendAsync(p, context.CancellationToken);
 		}
 	}
