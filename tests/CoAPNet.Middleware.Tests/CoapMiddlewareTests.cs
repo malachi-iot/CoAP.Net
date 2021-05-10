@@ -108,31 +108,26 @@ namespace CoAPNet.Middleware.Tests
             var remote = new SyntheticCoapEndpoint("coap://remotehost");
             var middleware = new SyntheticMiddleware();
             var c = new CoapClient2(local, services, cts.Token, extra: middleware);
-            var ms = new System.IO.MemoryStream();
 
-            var m = new CoapMessage();
+            CoapMessage m = CreateGetMessage();
+
             m.SetUri("coap://localhost/v1/hello");
-            m.Type = CoapMessageType.Confirmable;
-            m.Code = CoapMessageCode.Get;
             m.Id = new Random().Next(0, UInt16.MaxValue);
-            m.Encode(ms);
-            await ms.FlushAsync();
-            var cp = new CoapPacket
-            {
-                Endpoint = remote,
-                Payload = ms.ToArray()
-            };
+
+            CoapPacket cp = m.ToPacket(remote);
 
             //cts.CancelAfter(TimeSpan.FromSeconds(5));
 
-            await local.SendAsync(cp, cts.Token);
+            // simulate receipt of a CON message
+            await local.EnqueueFromTransport(cp, cts.Token);
 
-            var _out = await local.ReceiveAsync(cts.Token);
+            // forcefully retrieve whatever we would have emitted over transport in response
+            var _out = await local.DequeueToTransport(cts.Token);
             var response = CoapMessage.CreateFromBytes(_out.Payload);
 
-            //await remote.Incoming.DequeueAsync(cts.Token);
-
+            // ACK generated from middleware
             response.Id.Should().Be(m.Id);
+            response.Type.Should().Be(CoapMessageType.Acknowledgement);
 
             cts.Cancel();
         }
@@ -146,31 +141,29 @@ namespace CoAPNet.Middleware.Tests
             var remote = new SyntheticCoapEndpoint("coap://remotehost");
             var middleware = new SyntheticMiddleware();
             var c = new CoapClient2(local, services, cts.Token, extra: middleware);
-            var ms = new System.IO.MemoryStream();
+            CoapMessage m = CreateGetMessage();
 
-            var m = new CoapMessage();
             m.SetUri("coap://localhost/v1/hello");
-            m.Type = CoapMessageType.Confirmable;
-            m.Code = CoapMessageCode.Get;
             m.Id = new Random().Next(0, UInt16.MaxValue);
-            m.Encode(ms);
-            await ms.FlushAsync();
-            var cp = new CoapPacket
-            {
-                Endpoint = remote,
-                Payload = ms.ToArray()
-            };
+
+            CoapPacket cp = m.ToPacket(remote);
 
             //cts.CancelAfter(TimeSpan.FromSeconds(5));
 
-            await local.SendAsync(cp, cts.Token);
+            // Send directly via client out over simulated transport
+            await c.SendAsync(m, remote, cts.Token);
 
-            var _out = await local.ReceiveAsync(cts.Token);
+            //await local.SendAsync(cp, cts.Token);
+
+            // pull out what's waiting to go out over transport
+            var _out = await local.DequeueToTransport(cts.Token);
             var response = CoapMessage.CreateFromBytes(_out.Payload);
 
-            //await remote.Incoming.DequeueAsync(cts.Token);
-
+            // we expect to pull out exactly what we put in.  Remember we only expect
+            // incoming middleware to activate when endpoint *receives* data.  In this case,
+            // we forced an endpoint *send*
             response.Id.Should().Be(m.Id);
+            response.Type.Should().Be(CoapMessageType.Confirmable);
 
             cts.Cancel();
         }

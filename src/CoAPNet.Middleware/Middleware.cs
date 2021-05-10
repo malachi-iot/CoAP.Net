@@ -538,10 +538,6 @@ namespace CoAPNet.Middleware
 		/// </remarks>
 		Channel<CoapPacket> outgoing = Channel.CreateUnbounded<CoapPacket>();
 
-		ICoapMiddleware middleware;
-
-		readonly OptionFactory optionFactory;
-
 		readonly RequestDelegate<CoapContext> incomingMiddleware;
 		readonly RequestDelegate<CoapPacket> outgoingMiddleware;
 
@@ -577,14 +573,6 @@ namespace CoAPNet.Middleware
 
 			//var scheduler = services.GetService<Experimental.SchedulerService>();
 			var addOneShot = services.GetService<AddOneShotDelegate>();
-			var observeMiddleware = new CoapObserveMiddleware(terminator.Invoke);
-			var ackMiddleware = new CoapAckMiddleware(observeMiddleware.Invoke);
-
-			//var ackMiddleware = ActivatorUtilities.CreateInstance<CoapAckMiddleware>(services, 
-			//new RequestDelegate<CoapContext>(observeMiddleware.Invoke));
-
-			middleware = ackMiddleware;
-			optionFactory = new OptionFactory(new[] { typeof(Options.Observe) });
 
 			var appBuilder = new ApplicationBuilder<CoapContext>();
 
@@ -645,8 +633,15 @@ namespace CoAPNet.Middleware
             {
 				CoapPacket p = await outgoing.Reader.ReadAsync(ct);
 				await outgoingMiddleware.Invoke(p);
-				//await Endpoint.SendAsync(p, ct);
             }
+        }
+
+
+		public async Task SendAsync(CoapMessage message, ICoapEndpoint remoteEndpoint,
+			CancellationToken ct = default)
+        {
+			CoapPacket packet = message.ToPacket(remoteEndpoint);
+			await outgoing.Writer.WriteAsync(packet, ct);
         }
 	}
 

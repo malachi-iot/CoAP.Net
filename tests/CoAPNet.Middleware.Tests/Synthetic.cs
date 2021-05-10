@@ -16,8 +16,33 @@ namespace CoAPNet.Middleware.Tests
 
 		public Uri BaseUri { get; set; }
 
+		/// <summary>
+		/// Outgoing queue to emit over a simulated transport
+		/// </summary>
+		public readonly Channel<CoapPacket> Outgoing = Channel.CreateUnbounded<CoapPacket>();
+		/// <summary>
+		/// Incoming queue to wait on from a simulated transport
+		/// </summary>
+		public readonly Channel<CoapPacket> Incoming = Channel.CreateUnbounded<CoapPacket>();
 
-		public Channel<CoapPacket> channel = Channel.CreateUnbounded<CoapPacket>();
+		/// <summary>
+		/// Enqueue a packet from an external/simulated/synthetic transport into this endpoint
+		/// </summary>
+		/// <param name="p"></param>
+		/// <param name="ct"></param>
+		/// <returns></returns>
+		public async Task EnqueueFromTransport(CoapPacket p, CancellationToken ct = default) =>
+			await Incoming.Writer.WriteAsync(p, ct);
+
+		/// <summary>
+		/// Retrieve a packet from this endpoint which was queued for a transport send
+		/// </summary>
+		/// <param name="ct"></param>
+		/// <returns></returns>
+		/// <remarks>
+		/// </remarks>
+		public async Task<CoapPacket> DequeueToTransport(CancellationToken ct = default) =>
+			await Outgoing.Reader.ReadAsync(ct);
 
 		public void Dispose()
 		{
@@ -31,12 +56,12 @@ namespace CoAPNet.Middleware.Tests
 
 		public async Task<CoapPacket> ReceiveAsync(CancellationToken tokens)
 		{
-			return await channel.Reader.ReadAsync(tokens);
+			return await Incoming.Reader.ReadAsync(tokens);
 		}
 
 		public async Task SendAsync(CoapPacket packet, CancellationToken token)
 		{
-			await channel.Writer.WriteAsync(packet);
+			await Outgoing.Writer.WriteAsync(packet);
 		}
 
 		public string ToString(CoapEndpointStringFormat format)
