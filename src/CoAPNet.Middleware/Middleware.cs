@@ -582,8 +582,6 @@ namespace CoAPNet.Middleware
         {
 			ApplicationBuilder<CoapPacket> appBuilder = new ApplicationBuilder<CoapPacket>();
 
-			// FIX: Results in a hang in xUnit.  Either infinite loop or interrupts expect packet flow
-			/*
 			appBuilder.Use(async (packet, next) =>
 			{
 				var optionFactory = services.GetService<OptionFactory>();
@@ -591,11 +589,17 @@ namespace CoAPNet.Middleware
 				m.OptionFactory = optionFactory;
 				m.FromBytes(packet.Payload);
 				
-				// FIX: Not right
-				var dtSend = DateTimeOffset.Now;
+				if (m.Type == CoapMessageType.Confirmable)
+				{
+					// FIX: Not right
+					var dtSend = DateTimeOffset.Now;
 
-				retryMiddleware.Track(m, packet.Endpoint, dtSend, Endpoint,  ct);
-			}); */
+					// FIX: Results in a hang in xUnit.  Either infinite loop or interrupts expected packet flow
+					//retryMiddleware.Track(m, packet.Endpoint, dtSend, Endpoint, ct);
+				}
+
+				await next();
+			});
 			appBuilder.Use(async (packet, next) =>
 			{
 				await Endpoint.SendAsync(packet, ct);
