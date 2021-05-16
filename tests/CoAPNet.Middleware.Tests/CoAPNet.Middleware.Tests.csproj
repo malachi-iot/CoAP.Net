@@ -14,6 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\CoAPNet\CoAPNet.csproj" /> <!-- JetBrains Rider needs explicit ref here -->
     <ProjectReference Include="..\..\src\CoAPNet.Middleware\CoAPNet.Middleware.csproj" />
   </ItemGroup>
 
