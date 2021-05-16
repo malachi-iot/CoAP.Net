@@ -21,7 +21,7 @@ namespace CoAPNet.Middleware
 
 
 	public class CoapContextBase
-    {
+	{
 		public ICoapConnectionInformation Connection { get; }
 
 		public CancellationToken CancellationToken { get; }
@@ -31,11 +31,11 @@ namespace CoAPNet.Middleware
 		public CoapContextBase(ICoapConnectionInformation connection,
 			IServiceProvider services,
 			CancellationToken cancellationToken)
-        {
+		{
 			CancellationToken = cancellationToken;
 			Connection = connection;
 			Services = services;
-        }
+		}
 	}
 
 	public class CoapContext : CoapContextBase
@@ -65,24 +65,24 @@ namespace CoAPNet.Middleware
 	}
 
 
-    public class CoapOutgoingContext : CoapContextBase
-    {
-        /// <summary>
-        /// Outgoing message
-        /// </summary>
-        public CoapMessage Message { get; }
-        
-        public DateTimeOffset DateTimeSending { get; }
+	public class CoapOutgoingContext : CoapContextBase
+	{
+		/// <summary>
+		/// Outgoing message
+		/// </summary>
+		public CoapMessage Message { get; }
+		
+		public DateTimeOffset DateTimeSending { get; }
 
-        
-        public CoapOutgoingContext(ICoapConnectionInformation connection, CoapMessage message, DateTimeOffset sending,
-            IServiceProvider services, CancellationToken cancellationToken) :
-            base(connection, services, cancellationToken)
-        {
-            Message = message;
-            DateTimeSending = sending;
-        }
-    }
+		
+		public CoapOutgoingContext(ICoapConnectionInformation connection, CoapMessage message, DateTimeOffset sending,
+			IServiceProvider services, CancellationToken cancellationToken) :
+			base(connection, services, cancellationToken)
+		{
+			Message = message;
+			DateTimeSending = sending;
+		}
+	}
 
 
 	public static class CoapContextExtensions
@@ -90,7 +90,7 @@ namespace CoAPNet.Middleware
 		public static CoapMessage CreateReply(this CoapMessage message,
 			CoapMessageCode code,
 			CoapMessageType type = CoapMessageType.Acknowledgement)
-        {
+		{
 			return new CoapMessage
 			{
 				Id = message.Id,
@@ -608,13 +608,13 @@ namespace CoAPNet.Middleware
 		RequestDelegate<CoapOutgoingContext> ConfigureOutgoingMiddleware(
 			CoapRetryMiddleware retryMiddleware,	// DEBT: Clumsy way to get access to this 
 			CancellationToken ct)
-        {
+		{
 			var appBuilder = new ApplicationBuilder<CoapOutgoingContext>();
 
 			appBuilder.Use(async (context, next) =>
 			{
 				var optionFactory = services.GetService<OptionFactory>();
-                var m = context.Message;
+				var m = context.Message;
 				
 				if (m.Type == CoapMessageType.Confirmable)
 				{
@@ -628,8 +628,8 @@ namespace CoAPNet.Middleware
 				await next();
 			});
 			appBuilder.Use(async (context, next) =>
-            {
-                CoapPacket packet = context.Message.ToPacket(context.Connection.RemoteEndpoint);
+			{
+				CoapPacket packet = context.Message.ToPacket(context.Connection.RemoteEndpoint);
 				await Endpoint.SendAsync(packet, ct);
 				await next();
 			});
@@ -663,6 +663,8 @@ namespace CoAPNet.Middleware
 
 			// DEBT: Very clumsy way to get access to this middleware
 			CoapRetryMiddleware retryMiddleware = null;
+			
+			retryMiddleware.AckEncountered += RetryMiddlewareOnAckEncountered;
 
 			appBuilder.Use(requestDelegate =>
 			{
@@ -688,8 +690,13 @@ namespace CoAPNet.Middleware
 			Task.Run(() => EndpointReceiveWorker(services, ct));
 		}
 
+		private void RetryMiddlewareOnAckEncountered(CoapAckMiddleware.SingleTarget obj)
+		{
+			
+		}
+
 		async Task OnReceivedMessage(CoapContext context)
-        {
+		{
 			//await middleware.Invoke(context);
 			await incomingMiddleware(context);
 
@@ -703,7 +710,7 @@ namespace CoAPNet.Middleware
 		}
 
 		async Task EndpointReceiveWorker(IServiceProvider services, CancellationToken ct)
-        {
+		{
 			while (!ct.IsCancellationRequested)
 			{
 				CoapPacket packet = await Endpoint.ReceiveAsync(ct);
@@ -723,9 +730,9 @@ namespace CoAPNet.Middleware
 		/// <param name="ct"></param>
 		/// <returns></returns>
 		async Task InternalOutgoingWorker(IServiceProvider services, CancellationToken ct)
-        {
+		{
 			while (!ct.IsCancellationRequested)
-            {
+			{
 				CoapOutgoingContext c = await outgoing.Reader.ReadAsync(ct);
 				try
 				{
@@ -737,19 +744,25 @@ namespace CoAPNet.Middleware
 				{
 					logger.LogCritical(0, e, "Outgoing pipeline failed");
 				}
-            }
-        }
+			}
+		}
 
 
-		public async Task SendAsync(CoapMessage message, ICoapEndpoint remoteEndpoint,
+		public async Task SendAsync(CoapMessage message, ICoapEndpoint remoteEndpoint, DateTimeOffset dtSending,
 			CancellationToken ct = default)
-        {
-            var conn = new CoapConnectionInformation(Endpoint, remoteEndpoint);
-            // DEBT: Will need to pass this in for unit tests
-            var dtSending = DateTimeOffset.Now;
-            var c = new CoapOutgoingContext(conn, message, dtSending, services, ct);
+		{
+			var conn = new CoapConnectionInformation(Endpoint, remoteEndpoint);
+			// DEBT: Will need to pass this in for unit tests
+			var c = new CoapOutgoingContext(conn, message, dtSending, services, ct);
 			await outgoing.Writer.WriteAsync(c, ct);
-        }
+			if (message.Type == CoapMessageType.Confirmable)
+			{
+				
+			}
+		}
+
+		public Task SendAsync(CoapMessage message, ICoapEndpoint remoteEndpoint, CancellationToken ct = default) =>
+			SendAsync(message, remoteEndpoint, DateTimeOffset.Now, ct);
 	}
 
 

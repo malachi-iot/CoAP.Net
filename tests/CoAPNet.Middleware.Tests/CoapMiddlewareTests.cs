@@ -169,5 +169,21 @@ namespace CoAPNet.Middleware.Tests
             cts.Cancel();
         }
 
+        [Test]
+        public async Task ClientTest3()
+        {
+            var cts = new CancellationTokenSource();
+            var local = new SyntheticCoapEndpoint("coap://localhost");
+            var remote = new SyntheticCoapEndpoint("coap://remotehost");
+            
+            var c = new CoapClient2(local, services, cts.Token);
+
+            var m = CreateGetMessage();
+            var ack = CreateAckMessage(m.Id);
+
+            await c.SendAsync(m, remote);
+
+            await local.EnqueueFromTransport(ack.ToPacket(remote));
+        }
     }
 }
