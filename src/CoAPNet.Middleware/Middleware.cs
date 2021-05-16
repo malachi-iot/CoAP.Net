@@ -65,6 +65,26 @@ namespace CoAPNet.Middleware
 	}
 
 
+    public class CoapOutgoingContext : CoapContextBase
+    {
+        /// <summary>
+        /// Outgoing message
+        /// </summary>
+        public CoapMessage Message { get; }
+        
+        public DateTimeOffset DateTimeSending { get; }
+
+        
+        public CoapOutgoingContext(ICoapConnectionInformation connection, CoapMessage message, DateTimeOffset sending,
+            IServiceProvider services, CancellationToken cancellationToken) :
+            base(connection, services, cancellationToken)
+        {
+            Message = message;
+            DateTimeSending = sending;
+        }
+    }
+
+
 	public static class CoapContextExtensions
 	{
 		public static CoapMessage CreateReply(this CoapMessage message,
@@ -578,25 +598,23 @@ namespace CoAPNet.Middleware
 		/// ... otherwise, we might instead use an ObservableCollection here or if we really don't care,
 		/// merely send out directly over the endpoint
 		/// </remarks>
-		Channel<CoapPacket> outgoing = Channel.CreateUnbounded<CoapPacket>();
+		Channel<CoapOutgoingContext> outgoing = Channel.CreateUnbounded<CoapOutgoingContext>();
 
 		readonly RequestDelegate<CoapContext> incomingMiddleware;
-		readonly RequestDelegate<CoapPacket> outgoingMiddleware;
+		readonly RequestDelegate<CoapOutgoingContext> outgoingMiddleware;
 		readonly IServiceProvider services;
 		readonly ILogger logger;
 
-		RequestDelegate<CoapPacket> ConfigureOutgoingMiddleware(
+		RequestDelegate<CoapOutgoingContext> ConfigureOutgoingMiddleware(
 			CoapRetryMiddleware retryMiddleware,	// DEBT: Clumsy way to get access to this 
 			CancellationToken ct)
         {
-			ApplicationBuilder<CoapPacket> appBuilder = new ApplicationBuilder<CoapPacket>();
+			var appBuilder = new ApplicationBuilder<CoapOutgoingContext>();
 
-			appBuilder.Use(async (packet, next) =>
+			appBuilder.Use(async (context, next) =>
 			{
 				var optionFactory = services.GetService<OptionFactory>();
-				var m = new CoapMessage();
-				m.OptionFactory = optionFactory;
-				m.FromBytes(packet.Payload);
+                var m = context.Message;
 				
 				if (m.Type == CoapMessageType.Confirmable)
 				{
@@ -604,13 +622,14 @@ namespace CoAPNet.Middleware
 					var dtSend = DateTimeOffset.Now;
 
 					// FIX: Results in a hang in xUnit.  Either infinite loop or interrupts expected packet flow
-					retryMiddleware.Track(m, packet.Endpoint, dtSend, Endpoint, ct);
+					retryMiddleware.Track(m, context.Connection.RemoteEndpoint, dtSend, Endpoint, ct);
 				}
 
 				await next();
 			});
-			appBuilder.Use(async (packet, next) =>
-			{
+			appBuilder.Use(async (context, next) =>
+            {
+                CoapPacket packet = context.Message.ToPacket(context.Connection.RemoteEndpoint);
 				await Endpoint.SendAsync(packet, ct);
 				await next();
 			});
@@ -707,12 +726,12 @@ namespace CoAPNet.Middleware
         {
 			while (!ct.IsCancellationRequested)
             {
-				CoapPacket p = await outgoing.Reader.ReadAsync(ct);
+				CoapOutgoingContext c = await outgoing.Reader.ReadAsync(ct);
 				try
 				{
 					// End of outgoing pipeline more-or-less sends over transport
 					// (it's permissible to have post-send middleware)
-					await outgoingMiddleware.Invoke(p);
+					await outgoingMiddleware.Invoke(c);
 				}
 				catch (Exception e)
 				{
@@ -725,8 +744,11 @@ namespace CoAPNet.Middleware
 		public async Task SendAsync(CoapMessage message, ICoapEndpoint remoteEndpoint,
 			CancellationToken ct = default)
         {
-			CoapPacket packet = message.ToPacket(remoteEndpoint);
-			await outgoing.Writer.WriteAsync(packet, ct);
+            var conn = new CoapConnectionInformation(Endpoint, remoteEndpoint);
+            // DEBT: Will need to pass this in for unit tests
+            var dtSending = DateTimeOffset.Now;
+            var c = new CoapOutgoingContext(conn, message, dtSending, services, ct);
+			await outgoing.Writer.WriteAsync(c, ct);
         }
 	}
 
