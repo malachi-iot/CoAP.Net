@@ -1,6 +1,7 @@
 ﻿using CoAPNet.Options;
 
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 using System;
 using System.Collections.Generic;
@@ -519,6 +520,13 @@ namespace CoAPNet.Middleware
 		LinkedList<Func<RequestDelegate<TContext>, RequestDelegate<TContext>>> middlewares =
 			new LinkedList<Func<RequestDelegate<TContext>, RequestDelegate<TContext>>>();
 
+		readonly ILogger logger;
+
+		public ApplicationBuilder(ILogger<ApplicationBuilder<TContext>> logger = null)
+		{
+			this.logger = logger;
+		}
+
 		public RequestDelegate<TContext> Build()
 		{
 			RequestDelegate<TContext> d = _ => Task.CompletedTask;
@@ -575,6 +583,7 @@ namespace CoAPNet.Middleware
 		readonly RequestDelegate<CoapContext> incomingMiddleware;
 		readonly RequestDelegate<CoapPacket> outgoingMiddleware;
 		readonly IServiceProvider services;
+		readonly ILogger logger;
 
 		RequestDelegate<CoapPacket> ConfigureOutgoingMiddleware(
 			CoapRetryMiddleware retryMiddleware,	// DEBT: Clumsy way to get access to this 
@@ -595,7 +604,7 @@ namespace CoAPNet.Middleware
 					var dtSend = DateTimeOffset.Now;
 
 					// FIX: Results in a hang in xUnit.  Either infinite loop or interrupts expected packet flow
-					//retryMiddleware.Track(m, packet.Endpoint, dtSend, Endpoint, ct);
+					retryMiddleware.Track(m, packet.Endpoint, dtSend, Endpoint, ct);
 				}
 
 				await next();
@@ -618,6 +627,7 @@ namespace CoAPNet.Middleware
 			ICoapMiddleware extra = null)
 		{
 			this.services = services;
+			logger = services.GetService<ILogger<CoapClient2>>();
 			Endpoint = endpoint;
 
 			// DEBT: Processed in reverse order from what you see here.  Would definitely be better
@@ -698,9 +708,16 @@ namespace CoAPNet.Middleware
 			while (!ct.IsCancellationRequested)
             {
 				CoapPacket p = await outgoing.Reader.ReadAsync(ct);
-				// End of outgoing pipeline more-or-less sends over transport
-				// (it's permissible to have post-send middleware)
-				await outgoingMiddleware.Invoke(p);
+				try
+				{
+					// End of outgoing pipeline more-or-less sends over transport
+					// (it's permissible to have post-send middleware)
+					await outgoingMiddleware.Invoke(p);
+				}
+				catch (Exception e)
+				{
+					logger.LogCritical(0, e, "Outgoing pipeline failed");
+				}
             }
         }
 

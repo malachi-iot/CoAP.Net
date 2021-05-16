@@ -20,6 +20,7 @@ namespace CoAPNet.Middleware.Tests
         {
             var sc = new ServiceCollection();
 
+            sc.AddTransient(sp => new AddOneShotDelegate((scheduled, action, x) => {}));
             sc.AddSingleton(x =>
             {
                 return new CoAPNet.Options.OptionFactory(new[] { typeof(Options.Observe) });
