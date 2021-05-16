@@ -117,6 +117,12 @@ namespace CoAPNet.Middleware
 			public UInt16 Id => (UInt16)sent.Id;
 			public DateTimeOffset DateTimeReceived => responseReceived;
 
+			/// <summary>
+			/// 
+			/// </summary>
+			/// <param name="sent">Original message which was sent</param>
+			/// <param name="requestSent">Date Time initial request was sent which this ACK responds to</param>
+			/// <param name="endpoint">Remote endpoint</param>
 			public SingleTarget(CoapMessage sent, DateTimeOffset requestSent, ICoapEndpoint endpoint)
 			{
 				this.sent = sent;
@@ -249,6 +255,10 @@ namespace CoAPNet.Middleware
 	public delegate void AddOneShotDelegate(DateTime scheduled, Action action, string description);
 
 
+	/// <summary>
+	/// Look for ACKs after a CON is sent out, and if none are seen in the right
+	/// time frame repeat the CON send
+	/// </summary>
 	public class CoapRetryMiddleware : CoapAckMiddleware
 	{
 		readonly AddOneShotDelegate addOneShot;
@@ -287,6 +297,13 @@ namespace CoAPNet.Middleware
 
 			ushort retries = 0;
 
+			/// <summary>
+			/// 
+			/// </summary>
+			/// <param name="sent"></param>
+			/// <param name="requestSent"></param>
+			/// <param name="endpoint">remote endpoint</param>
+			/// <param name="addOneShot"></param>
 			public RetryTarget(CoapMessage sent, DateTimeOffset requestSent, ICoapEndpoint endpoint,
 				AddOneShotDelegate addOneShot
 				//Experimental.SchedulerService scheduler
@@ -337,11 +354,11 @@ namespace CoAPNet.Middleware
 			this.addOneShot = addOneShot;
 		}
 
-		public void Track(CoapMessage message, ICoapEndpoint endpoint, DateTimeOffset dateTimeSent,
+		public void Track(CoapMessage message, ICoapEndpoint remoteEndpoint, DateTimeOffset dateTimeSent,
 			ICoapEndpoint localEndpoint, CancellationToken retrySendCancellationToken)
 		{
 			//var target = new RetryTarget(message, dateTimeSent, endpoint, scheduler);
-			var target = new RetryTarget(message, dateTimeSent, endpoint, addOneShot);
+			var target = new RetryTarget(message, dateTimeSent, remoteEndpoint, addOneShot);
 			target.ScheduleRetry(localEndpoint, retrySendCancellationToken);
 			Add(target);
 		}
@@ -557,11 +574,28 @@ namespace CoAPNet.Middleware
 
 		readonly RequestDelegate<CoapContext> incomingMiddleware;
 		readonly RequestDelegate<CoapPacket> outgoingMiddleware;
+		readonly IServiceProvider services;
 
-		RequestDelegate<CoapPacket> ConfigureOutgoingMiddleware(CancellationToken ct)
+		RequestDelegate<CoapPacket> ConfigureOutgoingMiddleware(
+			CoapRetryMiddleware retryMiddleware,	// DEBT: Clumsy way to get access to this 
+			CancellationToken ct)
         {
 			ApplicationBuilder<CoapPacket> appBuilder = new ApplicationBuilder<CoapPacket>();
 
+			// FIX: Results in a hang in xUnit.  Either infinite loop or interrupts expect packet flow
+			/*
+			appBuilder.Use(async (packet, next) =>
+			{
+				var optionFactory = services.GetService<OptionFactory>();
+				var m = new CoapMessage();
+				m.OptionFactory = optionFactory;
+				m.FromBytes(packet.Payload);
+				
+				// FIX: Not right
+				var dtSend = DateTimeOffset.Now;
+
+				retryMiddleware.Track(m, packet.Endpoint, dtSend, Endpoint,  ct);
+			}); */
 			appBuilder.Use(async (packet, next) =>
 			{
 				await Endpoint.SendAsync(packet, ct);
@@ -579,6 +613,7 @@ namespace CoAPNet.Middleware
 			// provided 'extra' will need CoapTerminatorMiddleware (or similar) as its 'next'
 			ICoapMiddleware extra = null)
 		{
+			this.services = services;
 			Endpoint = endpoint;
 
 			// DEBT: Processed in reverse order from what you see here.  Would definitely be better
@@ -593,16 +628,26 @@ namespace CoAPNet.Middleware
 
 			var appBuilder = new ApplicationBuilder<CoapContext>();
 
+			// DEBT: Very clumsy way to get access to this middleware
+			CoapRetryMiddleware retryMiddleware = null;
+
 			appBuilder.Use(requestDelegate =>
-				//new CoapRetryMiddleware(requestDelegate, scheduler).Invoke);
-				new CoapRetryMiddleware(requestDelegate, addOneShot).Invoke);
+			{
+				retryMiddleware = new CoapRetryMiddleware(requestDelegate, addOneShot);
+
+				return retryMiddleware.Invoke;
+			});
 			appBuilder.Use(requestDelegate =>
-				new CoapObserveMiddleware(requestDelegate).Invoke);
+			{
+				var m = new CoapObserveMiddleware(requestDelegate);
+
+				return m.Invoke;
+			});
 			if (extra != null)
 				appBuilder.Use(requestDelegate => extra.Invoke);
 			incomingMiddleware = appBuilder.Build();
 
-			outgoingMiddleware = ConfigureOutgoingMiddleware(ct);
+			outgoingMiddleware = ConfigureOutgoingMiddleware(retryMiddleware, ct);
 
 			// NOTE: Consider making a Fact service -- not doing so because that might be more heavy
 			// than is needed - plus adds a dependency to Fact.Extensions.Services
