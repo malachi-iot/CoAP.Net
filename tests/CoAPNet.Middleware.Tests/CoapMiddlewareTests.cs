@@ -181,9 +181,13 @@ namespace CoAPNet.Middleware.Tests
             var m = CreateGetMessage();
             var ack = CreateAckMessage(m.Id);
 
-            Task sendTask = c.SendAsync(m, remote);
+            Task sendTask = c.SendAsync(m, remote, cts.Token);
 
             await local.EnqueueFromTransport(ack.ToPacket(remote));
+
+            cts.CancelAfter(TimeSpan.FromSeconds(10));
+            
+            await sendTask;
         }
     }
 }
