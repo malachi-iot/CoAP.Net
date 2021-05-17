@@ -152,7 +152,7 @@ namespace CoAPNet.Middleware.Tests
             //cts.CancelAfter(TimeSpan.FromSeconds(5));
 
             // Send directly via client out over simulated transport
-            await c.SendAsync(m, remote, cts.Token);
+            Task sendTask = c.SendAsync(m, remote, cts.Token);
 
             //await local.SendAsync(cp, cts.Token);
 
@@ -181,7 +181,7 @@ namespace CoAPNet.Middleware.Tests
             var m = CreateGetMessage();
             var ack = CreateAckMessage(m.Id);
 
-            await c.SendAsync(m, remote);
+            Task sendTask = c.SendAsync(m, remote);
 
             await local.EnqueueFromTransport(ack.ToPacket(remote));
         }

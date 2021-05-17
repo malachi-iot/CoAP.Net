@@ -636,6 +636,11 @@ namespace CoAPNet.Middleware
 
 			return appBuilder.Build();
 		}
+        
+        // DEBT: Very clumsy way to get access to this middleware
+        readonly CoapRetryMiddleware retryMiddleware;
+
+
 
 		public CoapClient2(ICoapEndpoint endpoint, IServiceProvider services,
 			CancellationToken ct,
@@ -660,17 +665,13 @@ namespace CoAPNet.Middleware
 			var addOneShot = services.GetService<AddOneShotDelegate>();
 
 			var appBuilder = new ApplicationBuilder<CoapContext>();
-
-			// DEBT: Very clumsy way to get access to this middleware
-			CoapRetryMiddleware retryMiddleware = null;
-			
-			retryMiddleware.AckEncountered += RetryMiddlewareOnAckEncountered;
+            CoapRetryMiddleware _crm = null;
 
 			appBuilder.Use(requestDelegate =>
 			{
-				retryMiddleware = new CoapRetryMiddleware(requestDelegate, addOneShot);
+				_crm = new CoapRetryMiddleware(requestDelegate, addOneShot);
 
-				return retryMiddleware.Invoke;
+				return _crm.Invoke;
 			});
 			appBuilder.Use(requestDelegate =>
 			{
@@ -682,7 +683,12 @@ namespace CoAPNet.Middleware
 				appBuilder.Use(requestDelegate => extra.Invoke);
 			incomingMiddleware = appBuilder.Build();
 
+            retryMiddleware = _crm;
+
 			outgoingMiddleware = ConfigureOutgoingMiddleware(retryMiddleware, ct);
+            
+            retryMiddleware.AckEncountered += RetryMiddlewareOnAckEncountered;
+
 
 			// NOTE: Consider making a Fact service -- not doing so because that might be more heavy
 			// than is needed - plus adds a dependency to Fact.Extensions.Services
@@ -754,11 +760,20 @@ namespace CoAPNet.Middleware
 			var conn = new CoapConnectionInformation(Endpoint, remoteEndpoint);
 			// DEBT: Will need to pass this in for unit tests
 			var c = new CoapOutgoingContext(conn, message, dtSending, services, ct);
+            var s = new SemaphoreSlim(0);
 			await outgoing.Writer.WriteAsync(c, ct);
 			if (message.Type == CoapMessageType.Confirmable)
 			{
-				
-			}
+                retryMiddleware.AckEncountered += t =>
+                {
+                    if (t.Endpoint == remoteEndpoint && t.Id == message.Id)
+                    {
+                        s.Release();
+                    }
+                };
+
+                await s.WaitAsync(ct);
+            }
 		}
 
 		public Task SendAsync(CoapMessage message, ICoapEndpoint remoteEndpoint, CancellationToken ct = default) =>
